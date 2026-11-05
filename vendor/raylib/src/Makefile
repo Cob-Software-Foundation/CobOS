@@ -117,15 +117,16 @@ RAYLIB_MODULE_RAYGUI_PATH ?= $(RAYLIB_SRC_PATH)/../../raygui/src
 # Use external GLFW library instead of rglfw module
 USE_EXTERNAL_GLFW     ?= FALSE
 
-# Enable support for X11 by default on Linux when using GLFW
-# NOTE: Wayland is disabled by default, only enable if you are sure
-GLFW_LINUX_ENABLE_WAYLAND  ?= FALSE
-GLFW_LINUX_ENABLE_X11      ?= TRUE
+# CobOS: Wayland is the default display backend on Linux when using GLFW
+# NOTE: X11 is disabled by default; build with GLFW_LINUX_ENABLE_X11=TRUE to add it.
+# Requires wayland-scanner and the Wayland client/EGL development packages.
+GLFW_LINUX_ENABLE_WAYLAND  ?= TRUE
+GLFW_LINUX_ENABLE_X11      ?= FALSE
 
-# Enable support for X11 by default on Linux when using RGFW
-# NOTE: Wayland is disabled by default, only enable if you are sure
-RGFW_LINUX_ENABLE_WAYLAND  ?= FALSE
-RGFW_LINUX_ENABLE_X11      ?= TRUE
+# CobOS: Wayland is the default display backend on Linux when using RGFW
+# NOTE: X11 is disabled by default; build with RGFW_LINUX_ENABLE_X11=TRUE to add it.
+RGFW_LINUX_ENABLE_WAYLAND  ?= TRUE
+RGFW_LINUX_ENABLE_X11      ?= FALSE
 
 # PLATFORM_DESKTOP_SDL: It requires SDL library to be provided externally
 # WARNING: Library is not included in raylib, it MUST be configured by users

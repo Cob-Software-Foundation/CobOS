@@ -25,8 +25,8 @@ cmake_dependent_option(USE_AUDIO "Build raylib with audio module" ON CUSTOMIZE_B
 enum_option(USE_EXTERNAL_GLFW "OFF;IF_POSSIBLE;ON" "Link raylib against system GLFW instead of embedded one")
 
 # GLFW build options
-option(GLFW_BUILD_WAYLAND "Build the bundled GLFW with Wayland support" OFF)
-option(GLFW_BUILD_X11 "Build the bundled GLFW with X11 support" ON)
+option(GLFW_BUILD_WAYLAND "Build the bundled GLFW with Wayland support (CobOS default)" ON)
+option(GLFW_BUILD_X11 "Build the bundled GLFW with X11 support (off by default on CobOS)" OFF)
 
 option(INCLUDE_EVERYTHING "Include everything disabled by default (for CI usage)" OFF)
 set(OFF ${INCLUDE_EVERYTHING} CACHE INTERNAL "Replace any OFF by default with \${OFF} to have it covered by this option")

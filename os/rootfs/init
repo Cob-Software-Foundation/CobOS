@@ -1,0 +1,45 @@
+#!/bin/busybox sh
+# CobOS init (PID 1): mount the basics, start udev, then run a Wayland session.
+
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+
+mount -t proc     proc     /proc
+mount -t sysfs    sysfs    /sys
+mount -t devtmpfs devtmpfs /dev
+mkdir -p /dev/pts /dev/shm /run /tmp
+mount -t devpts   devpts   /dev/pts
+mount -t tmpfs    tmpfs    /dev/shm
+mount -t tmpfs    tmpfs    /run
+mount -t tmpfs    tmpfs    /tmp
+hostname cobos
+
+# libinput finds keyboards and mice through the udev database, so udev must run.
+if [ -x /sbin/udevd ]; then
+    /sbin/udevd --daemon
+    /sbin/udevadm trigger --action=add
+    /sbin/udevadm settle --timeout=10
+fi
+
+# The graphics driver can finish binding a moment after boot; wait for the DRM node.
+i=0
+while [ ! -e /dev/dri/card0 ] && [ "$i" -lt 50 ]; do
+    sleep 0.1
+    i=$((i + 1))
+done
+
+# Wayland session environment. There is no seatd/logind here, so libseat uses its
+# built-in backend (this works because the session runs as root).
+export HOME=/root
+export SHELL=/bin/sh
+export XDG_RUNTIME_DIR=/run/user/0
+export XDG_SESSION_TYPE=wayland
+export LIBSEAT_BACKEND=builtin
+mkdir -p "$XDG_RUNTIME_DIR"
+chmod 0700 "$XDG_RUNTIME_DIR"
+
+echo "CobOS: starting the Wayland session (weston)..."
+weston --log=/run/weston.log
+
+# PID 1 must never exit, so fall back to a console shell if the session ends or fails.
+echo "CobOS: the Wayland session ended. Log: /run/weston.log"
+exec setsid cttyhack sh
