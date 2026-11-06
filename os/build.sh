@@ -59,18 +59,27 @@ It replaces systemd's udev, which is GPL/LGPL and would otherwise end up in the 
 fi
 LIBUDEV_ZERO_SRC=$(realpath "$LIBUDEV_ZERO_SRC")
 
-# ---- 1b. Check that the kernel source tree is complete and runnable ----
-# The repository's root .gitignore contained "*.lib", which also matches the kernel's
-# scripts/Makefile.lib. If that file is missing, no kernel target can build.
-if [ ! -f "$SRC/scripts/Makefile.lib" ]; then
-    die "Kernel-Source/scripts/Makefile.lib is missing, so the kernel cannot be built.
-The '*.lib' rule in .gitignore kept it out of git. Restore the file from the matching
-upstream Linux release (7.2-rc2), then add it with:
-  git add -f Kernel-Source/scripts/Makefile.lib"
+# ---- 1b. Check that the kernel source tree is complete ----
+# Earlier copies of this repository had lost kernel files to .gitignore rules: "*.lib"
+# dropped scripts/Makefile.lib, and "*.s" also matched "*.S" on case-insensitive
+# filesystems (Windows, macOS), which dropped every assembly source. The build then
+# fails deep inside make with "No rule to make target ...". Check a few files that
+# every x86_64 build needs, so the failure is explained up front.
+tree_missing=()
+for f in scripts/Makefile.lib usr/initramfs_data.S arch/x86/boot/startup/efi-mixed.S \
+         arch/x86/boot/startup/la57toggle.S arch/x86/entry/entry_64.S; do
+    [ -f "$SRC/$f" ] || tree_missing+=("$f")
+done
+if [ "${#tree_missing[@]}" -gt 0 ]; then
+    die "Kernel-Source is incomplete, so the kernel cannot be built. Missing:
+$(printf '  %s\n' "${tree_missing[@]}")
+Ignore rules dropped these files from git. Update your checkout (git pull); if you are
+re-importing the kernel, copy it from a Linux v7.2-rc2 checkout and add it with 'git add -f'."
 fi
 
-# The repository stores kernel scripts as non-executable, but the kernel build runs
-# many of them directly. Restore the executable bit on the scripts the build needs.
+# The kernel build runs many of its scripts directly. They are executable in git now, but
+# a checkout on a filesystem or tool that drops the executable bit would break the build,
+# so restore it on the scripts the build needs.
 (cd "$SRC" && grep -rIl -m1 '^#!' scripts usr arch/x86 tools 2>/dev/null | while read -r f; do
     if [ "$(head -c2 "$f")" = '#!' ]; then chmod +x "$f"; fi
 done) || true
@@ -116,7 +125,7 @@ copy_tree /usr/lib/x86_64-linux-gnu/weston /usr/lib/x86_64-linux-gnu/libweston-*
 # Add the shared libraries every copied program needs.
 echo "==> resolving shared libraries"
 while IFS= read -r -d '' file; do
-    if [ "$(LC_ALL=C head -c4 "$file" 2>/dev/null | tail -c3)" != "ELF" ]; then
+    if [ "$(LC_ALL=C head -c4 "$file" 2>/dev/null | tail -c3 | tr -d "\0")" != "ELF" ]; then
         continue
     fi
     while IFS= read -r lib; do

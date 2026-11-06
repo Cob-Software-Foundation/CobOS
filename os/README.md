@@ -62,12 +62,16 @@ None of this is legal advice. If you plan to distribute built images, have someo
 
 The vendored raylib in `vendor/raylib/` now builds its Linux desktop backend for Wayland by default instead of X11 (`GLFW_LINUX_ENABLE_WAYLAND` and `RGFW_LINUX_ENABLE_WAYLAND` default to `TRUE`, X11 to `FALSE`; the CMake and `build.zig` defaults match). To get X11 back, pass `GLFW_LINUX_ENABLE_X11=TRUE` (or `-DGLFW_BUILD_X11=ON`, or `linux_display_backend = .X11`). Building raylib this way needs `wayland-scanner` and the Wayland development packages.
 
-## Known problems in this repository
+## Kernel source: what was wrong and how it was fixed
 
-1. **`Kernel-Source/scripts/Makefile.lib` was missing.** The root `.gitignore` had a `*.lib` rule (from a generic C template) that also matches this file, so it was never committed. It has since been added to the repository, but it should be checked against upstream Linux 7.2-rc2. Other template rules (`*.a`, `*.so`, `*.map`, `*.hex`, `*.out` and so on) could have dropped other files too.
-2. **Kernel scripts are stored without their executable bit** (mode `100644`). `build.sh` restores the bit in your working tree before building. To fix it in git, commit the mode change.
+`Kernel-Source/` is meant to be a verbatim copy of upstream Linux v7.2-rc2. As first imported it was not: it was missing 1,535 files, 90 symlinks were stored as empty files, and no file was executable. `make` failed with errors such as `No rule to make target 'arch/x86/boot/startup/efi-mixed.o'`. The causes were `.gitignore` rules:
 
-`build.sh` stops with a clear message if `Makefile.lib` is missing, instead of a `make` error.
+- the kernel's own `*.s` rule (generated assembler output) also matches `*.S` on case-insensitive filesystems such as Windows and macOS, which dropped 1,341 hand-written assembly sources, including `usr/initramfs_data.S` and everything under `arch/x86/entry`;
+- the generic C-template rules in the root `.gitignore` (`*.lib`, `*.d`, `*.map`, `*.hex`, `*.x86_64`, ...) dropped `scripts/Makefile.lib` and about 190 more files.
+
+The tree has been restored from upstream. Every file name, mode and content hash now matches the `v7.2-rc2` tag (94,837 files), and the `.gitignore` files were changed so it cannot happen again. `build.sh` also checks for a few files that every x86_64 build needs and says what is wrong before `make` fails.
+
+If you ever re-import the kernel, do it from a Linux checkout on a case-sensitive filesystem and use `git add -f`.
 
 ## Status
 

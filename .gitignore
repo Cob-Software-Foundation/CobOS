@@ -54,3 +54,12 @@ dkms.conf
 
 # debug information files
 *.dwo
+
+# Kernel-Source is a verbatim copy of upstream Linux, which has its own .gitignore
+# files. The generic rules above (*.d, *.map, *.hex, *.x86_64, ...) must not drop
+# real kernel files, so re-include everything there and let Kernel-Source's own
+# rules decide.
+!/Kernel-Source/**
+
+# Output of os/build.sh (kernel build tree, root filesystem, bzImage)
+/os/out/

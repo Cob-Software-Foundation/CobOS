@@ -194,3 +194,8 @@ sphinx_*/
 
 # bc language scripts (not LLVM bitcode)
 !kernel/time/timeconst.bc
+
+# CobOS: "*.s" above (generated assembler output) also matches "*.S" on case-insensitive
+# filesystems (Windows, macOS), which silently dropped every hand-written assembly
+# source from the repository. Keep them.
+!*.S
