@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 # Build CobOS: a Wayland-ready Linux kernel with its root filesystem embedded.
 # Output: os/out/bzImage (boot it with os/run-qemu.sh).
 #
-# The root filesystem is assembled from this machine's busybox, Weston and udev,
-# so build on an x86_64 Linux host that has them installed.
+# The root filesystem is assembled from this machine's toybox, mksh and Weston, plus
+# libudev-zero built from source, so build on an x86_64 Linux host that has them.
+# None of the programs in the image is GPL: toybox is 0BSD, mksh is MirOS-licensed,
+# Weston is MIT and libudev-zero is ISC. Run os/audit-licenses.sh on the result to see
+# exactly what ended up in the image (the C library is still LGPL; see os/README.md).
 set -euo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -20,12 +24,12 @@ case "$HERE$OUT" in *" "*) die "the repository and output paths must not contain
 
 # ---- 1. Check the host has everything before doing any work ----
 missing=()
-for tool in gcc make bc flex bison busybox weston weston-terminal ldd; do
+for tool in gcc make bc flex bison toybox mksh weston weston-terminal ldd; do
     command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
 done
 if [ "${#missing[@]}" -gt 0 ]; then
     die "missing tools: ${missing[*]}
-On Debian/Ubuntu: sudo apt install build-essential bc flex bison libssl-dev libelf-dev busybox-static weston udev"
+On Debian/Ubuntu: sudo apt install build-essential bc flex bison libssl-dev libelf-dev toybox mksh weston"
 fi
 
 weston_major=$(weston --version 2>/dev/null | grep -oE '[0-9]+' | head -n1 || true)
@@ -33,10 +37,31 @@ if [ -n "$weston_major" ] && [ "$weston_major" -lt 10 ]; then
     die "Weston $weston_major is too old; the kiosk shell needs Weston 10 or newer"
 fi
 
+# toybox prints its list of commands when run with no arguments. init needs these.
+toybox_cmds=$(toybox 2>/dev/null | tr -s ' \t\n' '\n' | grep -v '^$' || true)
+if [ -n "$toybox_cmds" ]; then
+    for cmd in mount mkdir hostname sleep chmod setsid; do
+        printf '%s\n' "$toybox_cmds" | grep -qx "$cmd" \
+            || die "this toybox does not provide '$cmd', which init needs; use a newer toybox"
+    done
+else
+    echo "warning: could not list the commands of this toybox; the image may lack tools" >&2
+fi
+
+# libudev-zero replaces systemd's udev (GPL daemon, LGPL library). Get it with:
+#   git clone https://github.com/illiliti/libudev-zero
+LIBUDEV_ZERO_SRC=${LIBUDEV_ZERO_SRC:-}
+if [ -z "$LIBUDEV_ZERO_SRC" ] || [ ! -f "$LIBUDEV_ZERO_SRC/Makefile" ]; then
+    die "set LIBUDEV_ZERO_SRC to a checkout of libudev-zero (ISC licence), for example:
+  git clone https://github.com/illiliti/libudev-zero ~/libudev-zero
+  LIBUDEV_ZERO_SRC=~/libudev-zero os/build.sh
+It replaces systemd's udev, which is GPL/LGPL and would otherwise end up in the image."
+fi
+LIBUDEV_ZERO_SRC=$(realpath "$LIBUDEV_ZERO_SRC")
+
 # ---- 1b. Check that the kernel source tree is complete and runnable ----
-# The repository's root .gitignore contains "*.lib", which also matches the kernel's
-# scripts/Makefile.lib. That file was therefore never committed, and without it no
-# kernel target can build.
+# The repository's root .gitignore contained "*.lib", which also matches the kernel's
+# scripts/Makefile.lib. If that file is missing, no kernel target can build.
 if [ ! -f "$SRC/scripts/Makefile.lib" ]; then
     die "Kernel-Source/scripts/Makefile.lib is missing, so the kernel cannot be built.
 The '*.lib' rule in .gitignore kept it out of git. Restore the file from the matching
@@ -44,7 +69,7 @@ upstream Linux release (7.2-rc2), then add it with:
   git add -f Kernel-Source/scripts/Makefile.lib"
 fi
 
-# The repository also stores every script as non-executable, but the kernel build runs
+# The repository stores kernel scripts as non-executable, but the kernel build runs
 # many of them directly. Restore the executable bit on the scripts the build needs.
 (cd "$SRC" && grep -rIl -m1 '^#!' scripts usr arch/x86 tools 2>/dev/null | while read -r f; do
     if [ "$(head -c2 "$f")" = '#!' ]; then chmod +x "$f"; fi
@@ -69,11 +94,14 @@ copy_tree() {
     done
 }
 
-# busybox plus an applet symlink for every command it provides
-install -D -m 0755 "$(command -v busybox)" "$ROOT/bin/busybox"
-for applet in $("$ROOT/bin/busybox" --list); do
-    ln -sf busybox "$ROOT/bin/$applet"
+# toybox (0BSD) provides the command-line tools, with a symlink per command;
+# mksh (MirOS licence) is /bin/sh.
+install -D -m 0755 "$(command -v toybox)" "$ROOT/bin/toybox"
+for cmd in $toybox_cmds; do
+    if [ "$cmd" != "sh" ]; then ln -sf toybox "$ROOT/bin/$cmd"; fi
 done
+install -D -m 0755 "$(command -v mksh)" "$ROOT/bin/mksh"
+ln -sf mksh "$ROOT/bin/sh"
 
 # the Wayland compositor and the program the session launches
 install -D -m 0755 "$(command -v weston)" "$ROOT/usr/bin/weston"
@@ -84,19 +112,6 @@ install -D -m 0755 "$(command -v weston-terminal)" "$ROOT/usr/bin/weston-termina
 copy_tree /usr/lib/x86_64-linux-gnu/weston /usr/lib/x86_64-linux-gnu/libweston-* \
           /usr/lib/weston /usr/lib64/weston \
           /usr/share/X11/xkb /etc/fonts /usr/share/fonts/truetype/dejavu
-
-# udev, so libinput can find the keyboard and mouse
-udevd=
-for candidate in /lib/systemd/systemd-udevd /usr/lib/systemd/systemd-udevd /sbin/udevd; do
-    if [ -x "$candidate" ]; then udevd=$(readlink -f "$candidate"); break; fi
-done
-if [ -n "$udevd" ] && command -v udevadm >/dev/null 2>&1; then
-    install -D -m 0755 "$udevd" "$ROOT/sbin/udevd"
-    install -D -m 0755 "$(command -v udevadm)" "$ROOT/sbin/udevadm"
-    copy_tree /lib/udev /etc/udev/hwdb.bin /usr/lib/udev/hwdb.bin
-else
-    echo "warning: systemd-udevd/udevadm not found; the keyboard and mouse will not work" >&2
-fi
 
 # Add the shared libraries every copied program needs.
 echo "==> resolving shared libraries"
@@ -110,6 +125,24 @@ while IFS= read -r -d '' file; do
         fi
     done < <(ldd "$file" 2>/dev/null | grep -oE '/[^ ]+' || true)
 done < <(find "$ROOT" -type f -print0)
+
+# Swap systemd's libudev (copied by the step above) for libudev-zero. Both are named
+# libudev.so.1, which is what Weston and libinput load. It is built out of tree so the
+# checkout stays clean.
+echo "==> building libudev-zero"
+rm -rf "$OUT/libudev-zero"
+cp -a "$LIBUDEV_ZERO_SRC" "$OUT/libudev-zero"
+make -C "$OUT/libudev-zero" -j"$JOBS" >/dev/null
+udev_lib=$(ls "$OUT"/libudev-zero/libudev.so.1.* 2>/dev/null | head -n1 || true)
+[ -n "$udev_lib" ] || die "libudev-zero did not produce a libudev.so.1.* library"
+replaced=0
+while IFS= read -r -d '' file; do
+    install -m 0755 "$udev_lib" "$file"
+    replaced=1
+done < <(find "$ROOT" -name 'libudev.so.1*' -type f -print0)
+if [ "$replaced" -eq 0 ]; then
+    install -D -m 0755 "$udev_lib" "$ROOT/usr/lib/x86_64-linux-gnu/libudev.so.1"
+fi
 
 echo "    rootfs size: $(du -sh "$ROOT" | cut -f1)"
 
@@ -130,4 +163,5 @@ cp "$KO/arch/x86/boot/bzImage" "$OUT/bzImage"
 
 echo
 echo "Built $OUT/bzImage ($(du -h "$OUT/bzImage" | cut -f1))"
+echo "Check what is in it with: $HERE/audit-licenses.sh"
 echo "Boot it with: $HERE/run-qemu.sh"

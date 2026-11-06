@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 # Device nodes the kernel needs before init runs (usr/gen_init_cpio list format).
 # Listed here so the image can be built without root.
 dir /dev 0755 0 0

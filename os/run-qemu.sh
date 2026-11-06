@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 # Boot CobOS in QEMU.   Usage: os/run-qemu.sh [path/to/bzImage]
 set -euo pipefail
 
