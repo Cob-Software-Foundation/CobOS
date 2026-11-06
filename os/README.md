@@ -1,15 +1,14 @@
 # CobOS: a simple Wayland OS
 
-CobOS is the Linux kernel in `Kernel-Source/` plus a tiny userspace that boots straight into a Wayland session. There is no X11 anywhere in the stack.
+CobOS is the Linux kernel in `Kernel-Source/` plus a tiny userspace that boots straight into a Wayland session. There is no X11 anywhere in the stack, and no copyleft program or library in the userspace (see [Licensing](#licensing)).
 
 ## What boots
 
 1. The kernel starts and unpacks the root filesystem that is embedded in the kernel image.
 2. `rootfs/init` (PID 1) mounts the basic filesystems.
-3. `init` runs Weston, the reference Wayland compositor, on the DRM/KMS backend in kiosk mode.
-4. Weston launches one full-screen program, `weston-terminal`, as configured in `rootfs/etc/xdg/weston/weston.ini`.
+3. `init` runs `cage`, a Wayland kiosk compositor built on wlroots, which shows one program full screen: the `foot` terminal.
 
-If Weston exits, `init` drops to a console shell instead of crashing the machine.
+If the session ends, `init` drops to a console shell instead of crashing the machine. The session log is `/run/cage.log`.
 
 ## Layout
 
@@ -17,50 +16,53 @@ If Weston exits, `init` drops to a console shell instead of crashing the machine
 |---|---|
 | `kernel/cobos.config` | Kernel config fragment (DRM/KMS, input, tmpfs, and so on) merged over `x86_64_defconfig` |
 | `kernel/dev.list` | `/dev/console` and `/dev/null`, so the image builds without root |
-| `rootfs/` | The files that are the OS itself: `init` and the Weston config |
-| `build.sh` | Assembles the rootfs and builds `out/bzImage` |
+| `rootfs/` | The files that are the OS itself: `init` and the terminal config |
+| `mkrootfs.sh` | Runs inside an Alpine container and installs the userspace packages |
+| `check-licenses.py` | Reads the license of every installed package and fails on copyleft |
+| `license-waivers.txt` | Packages accepted on purpose, each with a reason |
+| `build.sh` | Runs all of the above and builds `out/bzImage` |
 | `run-qemu.sh` | Boots `out/bzImage` in QEMU |
-| `audit-licenses.sh` | Lists which host packages ended up in the image and flags GPL/LGPL mentions |
 
 ## Build and run
 
-On an x86_64 Linux host (Debian/Ubuntu package names):
+On an x86_64 Linux host with Docker (or Podman) running and internet access (Debian/Ubuntu package names):
 
 ```sh
-sudo apt install build-essential bc flex bison libssl-dev libelf-dev toybox mksh weston qemu-system-x86
-git clone https://github.com/illiliti/libudev-zero ~/libudev-zero
-LIBUDEV_ZERO_SRC=~/libudev-zero os/build.sh     # produces os/out/bzImage
-os/run-qemu.sh                                  # boots it; quit QEMU with Ctrl-A then X
-os/audit-licenses.sh                            # shows what is in the image and under which licenses
+sudo apt install build-essential bc flex bison libssl-dev libelf-dev python3 qemu-system-x86
+os/build.sh        # produces os/out/bzImage; run it as yourself, not with sudo
+os/run-qemu.sh     # boots it; quit QEMU with Ctrl-A then X
 ```
 
-`build.sh` copies toybox, mksh and Weston from the machine it runs on, so it needs Weston 10 or newer, and it builds libudev-zero from the checkout you point it at. The kernel build takes a while and the image is a few hundred MB.
+`build.sh` installs the userspace from Alpine Linux packages, because Alpine is built on musl (MIT) instead of glibc (LGPL). It then checks the licenses, and only if that passes does it build the kernel. The kernel build takes a while.
 
 ## Licensing
 
-The userspace code in this repository (everything in `os/`, plus the repository's own code outside `Kernel-Source/` and `vendor/`) is under the PolyForm Noncommercial License 1.0.0, see `LICENSE.md`. Each file in `os/` carries an SPDX identifier saying so.
+The code in this repository outside `Kernel-Source/` and `vendor/` (everything in `os/`, for example) is under the PolyForm Noncommercial License 1.0.0, see `LICENSE.md`. Each file in `os/` carries an SPDX identifier saying so. `LICENSE.md` is copied into the image at `/usr/share/doc/cobos/`.
 
-**No GPL programs are in the image.** BusyBox (GPL-2.0) and systemd's udev (GPL-2.0-or-later) were replaced with:
+**The userspace is checked, not just intended, to be copyleft-free.** After the packages are installed, `check-licenses.py` reads the license of every package from apk's database and stops the build if any package could only be used under GPL, LGPL, AGPL, MPL, EPL or similar, or has a license it does not recognise. Dual-licensed packages pass when one option is permissive (FreeType is "FTL OR GPL", so FreeType's own license is used). What goes in:
 
-| Role | Program | License |
+| Role | Package | License |
 |---|---|---|
-| Shell | mksh | MirOS License (permissive) |
+| C library | musl | MIT |
+| Shell | mksh | MirOS |
 | Commands (`ls`, `mount`, ...) | toybox | 0BSD |
-| Compositor | Weston | MIT |
-| Device discovery for libinput and Weston | libudev-zero, which reads `/sys` directly so no udev daemon runs | ISC |
+| Compositor | cage, wlroots | MIT |
+| Terminal | foot | MIT |
+| Device discovery (no udev daemon) | libudev-zero | ISC |
 
-These are the upstream licenses as I know them. Do not rely on that alone: run `os/audit-licenses.sh` after a build to see what is really in the image on your machine.
+These are what the packages are meant to be. The real answer for your build is the table that `check-licenses.py` prints, and `/usr/share/doc/cobos/THIRD-PARTY-LICENSES.txt` inside the image lists every package, its license and its upstream URL.
 
-**What is still copyleft.**
-- **The C library.** The image uses the host's glibc (LGPL-2.1) and `libgcc_s` (GPL-3.0 with the GCC Runtime Library Exception). Every normal Linux program runs on these. Dynamically linking to them does not change your code's license, but distributing the image means shipping their license texts and offering their source. Getting rid of them means moving to a musl-based userspace (MIT), which is a much bigger change.
-- **Libraries pulled in by Weston and `weston-terminal`.** Some of these, such as cairo, are LGPL or MPL. The audit script lists them.
-- **The kernel.** Linux is GPL-2.0 with its syscall exception. That stays as it is, and the userspace is a separate work that happens to be packed into the same file.
+**What is still GPL, and why that is allowed.**
+- **`libgcc` and `libstdc++`** are GPL with the *GCC Runtime Library Exception*. The exception lets programs that use them keep any license, so they do not make your code copyleft. The libraries themselves are still GPL, so if you distribute an image you must include their license text and offer their source. The checker marks them `exception` and the notice file marks them with `*`. To avoid them completely you would need an LLVM toolchain and no C++ components, which is a much bigger change.
+- **The Linux kernel** is GPL-2.0 with its syscall exception. That cannot change, and the userspace is a separate work packed into the same file. Its source is `Kernel-Source/`.
 
-None of this is legal advice. If you plan to distribute built images, have someone check the notices and source-offer requirements for what the audit shows.
+**If the check fails.** The error names the package. Either remove it (or the package that pulls it in) in `mkrootfs.sh`, or, if apk only shows the license of the whole source package and the part you ship is permissive, add a line `<package> <reason>` to `license-waivers.txt`. Waived packages are listed on every run.
+
+None of this is legal advice. If you plan to distribute built images, have someone check the notices and source-offer requirements for the list the checker prints.
 
 ## Wayland in the rest of CobOS
 
-The vendored raylib in `vendor/raylib/` now builds its Linux desktop backend for Wayland by default instead of X11 (`GLFW_LINUX_ENABLE_WAYLAND` and `RGFW_LINUX_ENABLE_WAYLAND` default to `TRUE`, X11 to `FALSE`; the CMake and `build.zig` defaults match). To get X11 back, pass `GLFW_LINUX_ENABLE_X11=TRUE` (or `-DGLFW_BUILD_X11=ON`, or `linux_display_backend = .X11`). Building raylib this way needs `wayland-scanner` and the Wayland development packages.
+The vendored raylib in `vendor/raylib/` builds its Linux desktop backend for Wayland by default instead of X11 (`GLFW_LINUX_ENABLE_WAYLAND` and `RGFW_LINUX_ENABLE_WAYLAND` default to `TRUE`, X11 to `FALSE`; the CMake and `build.zig` defaults match). To get X11 back, pass `GLFW_LINUX_ENABLE_X11=TRUE` (or `-DGLFW_BUILD_X11=ON`, or `linux_display_backend = .X11`). Building raylib this way needs `wayland-scanner` and the Wayland development packages.
 
 ## Kernel source: what was wrong and how it was fixed
 
@@ -75,9 +77,9 @@ If you ever re-import the kernel, do it from a Linux checkout on a case-sensitiv
 
 ## Status
 
-This setup has not been booted. In the environment where it was written there was no QEMU, no `flex`, no Weston, no toybox or mksh and no network, so the kernel could not be built or configured. What was checked: the shell scripts parse, every config symbol in `kernel/cobos.config` exists in this kernel's Kconfig, the library-resolution step produces a rootfs that runs under `chroot`, the initramfs packaging produces the expected archive (with `/dev/console`, `/dev/null` and an executable `init`), and the license audit script runs against a test image.
+This setup has not been booted, and the Alpine package install has never been run: the environment where it was written had no Docker daemon, no access to Alpine's package servers, no `flex` and no QEMU. What was run and passed: the license checker on a fabricated package database (copyleft, dual-license, GCC-exception, waiver and malformed cases), `mkrootfs.sh` and `build.sh` end to end up to the kernel step with stand-ins for `docker` and `apk` (including building toybox 0.8.11 from source, which provides every command `init` uses), and a byte-for-byte comparison of `Kernel-Source/` with upstream.
 
-The parts most likely to need adjusting on a first boot are:
-- **libudev-zero as a stand-in for libudev.** Weston and libinput have to find the keyboard, mouse and GPU through it. If there is no input, look here first.
-- **toybox.** `init` needs `mount`, `mkdir`, `hostname`, `sleep`, `chmod` and `setsid`; `build.sh` checks that your toybox has them. A new enough toybox is needed.
-- **The Weston kiosk `[autolaunch]` settings,** which depend on the Weston version on the build host.
+Most likely to need adjusting on the first real run:
+- **Package names and dependencies.** If `apk` reports an unknown package, fix the list in `mkrootfs.sh`. If a package pulls in something copyleft (for example `busybox` as a provider of `/bin/sh`, or `eudev-libs` as a provider of `libudev`), the license check will name it.
+- **libseat's built-in backend.** `init` sets `LIBSEAT_BACKEND=builtin`. If Alpine's build lacks it, the session log `/run/cage.log` says so, and `seatd` has to be started in `init` instead.
+- **Keyboard and mouse.** wlroots and libinput must find them through libudev-zero. If there is no input, look here first.

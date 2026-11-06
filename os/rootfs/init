@@ -1,7 +1,7 @@
 #!/bin/sh
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 # CobOS init (PID 1): mount the basics, then run a Wayland session.
-# /bin/sh is mksh and the commands are toybox (see os/build.sh).
+# /bin/sh is mksh and the commands are toybox (see os/mkrootfs.sh).
 
 export PATH=/bin:/sbin:/usr/bin:/usr/sbin
 
@@ -15,7 +15,7 @@ mount -t tmpfs    tmpfs    /run
 mount -t tmpfs    tmpfs    /tmp
 hostname cobos
 
-# No udev daemon runs here. libinput and Weston find the keyboard, mouse and GPU
+# No udev daemon runs here. wlroots and libinput find the keyboard, mouse and GPU
 # through libudev-zero, a library that reads /sys directly.
 
 # The graphics driver can finish binding a moment after boot; wait for the DRM node.
@@ -25,20 +25,26 @@ while [ ! -e /dev/dri/card0 ] && [ "$i" -lt 50 ]; do
     i=$((i + 1))
 done
 
-# Wayland session environment. There is no seatd/logind here, so libseat uses its
-# built-in backend (this works because the session runs as root).
+# Wayland session environment.
+#  - There is no seatd/logind, so libseat uses its built-in backend, which works
+#    because the session runs as root.
+#  - Draw with the CPU (pixman): it works on any GPU, including virtio-gpu in a VM,
+#    and needs no OpenGL drivers in the image.
 export HOME=/root
 export SHELL=/bin/sh
 export XDG_RUNTIME_DIR=/run/user/0
 export XDG_SESSION_TYPE=wayland
 export LIBSEAT_BACKEND=builtin
+export WLR_RENDERER=pixman
+export WLR_NO_HARDWARE_CURSORS=1
 mkdir -p "$XDG_RUNTIME_DIR"
 chmod 0700 "$XDG_RUNTIME_DIR"
 
-echo "CobOS: starting the Wayland session (weston)..."
-weston --log=/run/weston.log
+# cage is a kiosk compositor: it shows one program (here the terminal, foot) full screen.
+echo "CobOS: starting the Wayland session (cage + foot)..."
+cage -d -- foot >/run/cage.log 2>&1
 
 # PID 1 must never exit, so fall back to a console shell if the session ends or fails.
 # setsid plus opening the console afterwards makes it the shell's controlling terminal.
-echo "CobOS: the Wayland session ended. Log: /run/weston.log"
+echo "CobOS: the Wayland session ended. Log: /run/cage.log"
 exec setsid sh -c 'exec sh </dev/console >/dev/console 2>&1'
