@@ -3,4 +3,3 @@
 # One per line: <apk package name> <reason>. A reason is required.
 # Waived packages are still listed, marked "waived", every time the check runs.
 
-font-dejavu DejaVu fonts use the Bitstream Vera license (free to use, copy and redistribute; fonts may not be sold on their own). Alpine labels it "custom".
