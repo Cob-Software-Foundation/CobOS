@@ -82,19 +82,24 @@ echo "==> installing packages with apk"
 # shellcheck disable=SC2086
 apk_into_root $PACKAGES
 
+# toybox provides the commands (ls, mount, ...). Use Alpine's package if there is one. This
+# comes before busybox is removed: installing anything makes apk re-check every package's
+# dependencies, which would bring busybox straight back.
+echo "==> toybox"
+if apk_into_root toybox >/dev/null 2>&1; then toybox_pkg=1; else toybox_pkg=0; fi
+
 # apk pulled in busybox as the provider of /bin/sh. The image uses mksh and toybox
-# instead, so take busybox back out before anything else is added.
+# instead, so take busybox back out. Nothing may be installed with apk after this.
 echo "==> removing busybox"
 purge_packages busybox busybox-binsh busybox-extras ssl_client
 
-# toybox provides the commands (ls, mount, ...). Use Alpine's package if there is one,
-# otherwise build it (0BSD) here.
-echo "==> toybox"
-if apk_into_root toybox 2>/dev/null; then
+if [ "$toybox_pkg" = 1 ]; then
     echo "    using Alpine's toybox package"
 else
-    echo "    no toybox package; building toybox $TOYBOX_REF from source"
-    apk add --no-progress --no-cache build-base linux-headers git >/dev/null
+    echo "    no toybox package; building toybox $TOYBOX_REF (0BSD) from source"
+    # bash is needed to run toybox's build scripts (#!/bin/bash). It, the compiler and git are
+    # installed in this throwaway container only, not in the image.
+    apk add --no-progress --no-cache build-base linux-headers git bash >/dev/null
     rm -rf /tmp/toybox
     git clone --quiet --depth 1 --branch "$TOYBOX_REF" https://github.com/landley/toybox /tmp/toybox
     (cd /tmp/toybox && make defconfig >/dev/null && make -j"$(nproc)" >/dev/null)
