@@ -1,0 +1,83 @@
+name: Build and release CobOS
+
+# Builds CobOS with os/build.sh and publishes it as a GitHub release.
+# The release tag is read from the VERSION file and the release notes from RELEASE.md.
+#   - Push a change to VERSION or RELEASE.md on main to build and release.
+#   - Or run it by hand: Actions tab > Build and release CobOS > Run workflow.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - VERSION
+      - RELEASE.md
+  workflow_dispatch:
+
+permissions:
+  contents: write   # needed to create the release
+
+concurrency:
+  group: cobos-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Read VERSION and RELEASE.md
+        id: meta
+        run: |
+          [ -f VERSION ] || { echo "VERSION file is missing" >&2; exit 1; }
+          [ -s RELEASE.md ] || { echo "RELEASE.md is missing or empty" >&2; exit 1; }
+          tag=$(tr -d ' \r\n' < VERSION)
+          if ! printf '%s' "$tag" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.]+)?$'; then
+            echo "VERSION must look like v0.0.1, found: $tag" >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Releasing $tag"
+
+      - name: Install kernel build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends bc flex bison libssl-dev libelf-dev python3
+
+      - name: Build CobOS
+        run: os/build.sh
+
+      - name: Collect release files
+        run: |
+          mkdir -p dist
+          cp os/out/bzImage dist/bzImage
+          cp os/out/rootfs/usr/share/doc/cobos/THIRD-PARTY-LICENSES.txt dist/
+          cp LICENSE.md dist/
+          (cd dist && sha256sum bzImage THIRD-PARTY-LICENSES.txt LICENSE.md > SHA256SUMS)
+          ls -l dist
+
+      - name: Keep the build as an artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cobos-${{ steps.meta.outputs.tag }}
+          path: dist/
+          if-no-files-found: error
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          files=(dist/bzImage dist/SHA256SUMS dist/THIRD-PARTY-LICENSES.txt dist/LICENSE.md)
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${files[@]}" --clobber
+            gh release edit "$TAG" --title "CobOS $TAG" --notes-file RELEASE.md
+          else
+            gh release create "$TAG" "${files[@]}" \
+              --target "$GITHUB_SHA" \
+              --title "CobOS $TAG" \
+              --notes-file RELEASE.md
+          fi

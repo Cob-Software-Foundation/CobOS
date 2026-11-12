@@ -96,13 +96,19 @@ purge_packages busybox busybox-binsh busybox-extras ssl_client
 if [ "$toybox_pkg" = 1 ]; then
     echo "    using Alpine's toybox package"
 else
+<<<<<<< HEAD
     echo "    no toybox package; building toybox $TOYBOX_REF (0BSD) from source"
     # bash is needed to run toybox's build scripts (#!/bin/bash). It, the compiler and git are
     # installed in this throwaway container only, not in the image.
     apk add --no-progress --no-cache build-base linux-headers git bash >/dev/null
     rm -rf /tmp/toybox
+=======
+    echo "    no toybox package; building toybox $TOYBOX_REF from source"
+    apk add --no-progress --no-cache build-base linux-headers git bash >/dev/null
+    rm -rf /usr/include/fortify /tmp/toybox
+>>>>>>> 8b936ceeb (v0.0.1)
     git clone --quiet --depth 1 --branch "$TOYBOX_REF" https://github.com/landley/toybox /tmp/toybox
-    (cd /tmp/toybox && make defconfig >/dev/null && make -j"$(nproc)" >/dev/null)
+    (cd /tmp/toybox && bash scripts/genconfig.sh && make defconfig >/dev/null && make -j"$(nproc)" >/dev/null)
     install -D -m 0755 /tmp/toybox/toybox "$OUT/bin/toybox"
 fi
 

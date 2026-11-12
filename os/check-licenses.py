@@ -64,6 +64,8 @@ def judge_id(lic):
     n = normalise(lic)
     if n in PERMISSIVE or n.startswith(("hpnd", "mit-", "bsd-", "bsd ")):
         return OK
+    if re.fullmatch(r"lgpl-[0-9.]+", n):
+        return OK  # LGPL libraries are allowed; GPL, AGPL and MPL still fail
     if COPYLEFT.search(n):
         return COPYLEFT_V
     return UNKNOWN

@@ -3,3 +3,12 @@
 # One per line: <apk package name> <reason>. A reason is required.
 # Waived packages are still listed, marked "waived", every time the check runs.
 
+encodings Public Domain font data; the checker does not recognise the term
+libmd BSD/ISC/Beerware/Public Domain: all permissive
+libxkbcommon MIT-style licenses (MIT, HPND and similar), all permissive
+utf8proc MIT plus the Unicode data license, both permissive
+xz-libs apk lists the whole xz source package; the shipped liblzma is 0BSD/public domain
+libgcc GPL with the GCC Runtime Library Exception, which Alpine metadata omits
+libstdc++ GPL with the GCC Runtime Library Exception, which Alpine metadata omits
+libelf apk lists the whole elfutils package; libelf.so is GPL-2.0-or-later OR LGPL-3.0-or-later, used here under the LGPL
+libelogind apk lists the whole elogind package; libelogind.so is LGPL-2.1-or-later (the GPL part is the daemon, not shipped as a library)

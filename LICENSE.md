@@ -143,7 +143,7 @@ license above). Full license text for each is in `legal/`:
                     legal/license_raylib.terms
   vendor/raygui  -- raygui (zlib License)
                     legal/license_raygui.terms
-  Kernel-Source/ -- Linux Kernel Licenses Live in Root for this and in legal/
+  Kernel-Source/ -- Linux Kernel Licenses Live in Root for this and in legal/ GPL 2.0
 
 Cob is built in Rust. The crates it depends on (fetched from crates.io, all
 under permissive licenses) are listed with their licenses in
